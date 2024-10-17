@@ -1,0 +1,278 @@
+/* Aggiorna il numero di voti di un'opera in seguito ad
+   un voto di uno spettatore */
+CREATE OR REPLACE FUNCTION calcolo_num_voti()
+RETURNS TRIGGER AS $$
+DECLARE
+     num_voti INT;
+BEGIN	
+		
+	UPDATE OPERA_AUDIOVISIVA
+		SET NUM_VOTI_OE = NUM_VOTI_OE + 1
+		WHERE OPERA_AUDIOVISIVA.COD_OPERA = NEW.COD_OPERA;	
+		
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER CALCOLO_NUM_VOTI
+AFTER INSERT ON VOTA_SPETTATORE
+FOR EACH ROW
+EXECUTE FUNCTION calcolo_num_voti();
+
+/* Controlla che uno spettatore voti un'opera che ha visto */
+CREATE OR REPLACE FUNCTION vincolo_voto_iscrizione()
+RETURNS TRIGGER AS $$
+DECLARE
+    num_iscrizioni INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO num_iscrizioni
+    FROM ISCRIZIONE_CON_OPERA_VIEW
+	WHERE ISCRIZIONE_CON_OPERA_VIEW.COD_OPERA = NEW.COD_OPERA
+    AND ISCRIZIONE_CON_OPERA_VIEW.COD_SPETTATORE = NEW.COD_SPETTATORE
+	GROUP BY COD_OPERA, COD_SPETTATORE;
+
+    IF num_iscrizioni IS NULL THEN
+        RAISE EXCEPTION 'ERRORE: Spettatore non iscritto per questa opera.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_VOTO_ISCRIZIONE
+BEFORE INSERT ON VOTA_SPETTATORE
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_voto_iscrizione();
+
+/* Controlla che uno spettatore recensisca un'opera che ha visto */
+CREATE OR REPLACE FUNCTION vincolo_recensione_iscrizione()
+RETURNS TRIGGER AS $$
+DECLARE
+    num_iscrizioni INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO num_iscrizioni
+    FROM ISCRIZIONE_CON_OPERA_VIEW
+	WHERE ISCRIZIONE_CON_OPERA_VIEW.COD_OPERA = NEW.COD_OPERA
+    AND ISCRIZIONE_CON_OPERA_VIEW.COD_SPETTATORE = NEW.COD_SPETTATORE
+	GROUP BY COD_OPERA, COD_SPETTATORE;
+
+    IF num_iscrizioni IS NULL THEN
+        RAISE EXCEPTION 'ERRORE: Spettatore non può recensione opere a cui non si è iscritto.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_RECENSIONE_ISCRIZIONE
+BEFORE INSERT ON RECENSIONE
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_recensione_iscrizione();
+
+/* 
+	Controlla che un attore da aggiungere alla giuria 
+ 	non sia parte del cast di una produzione in gara 
+*/
+CREATE OR REPLACE FUNCTION vincolo_conflitto_interesse_attore()
+RETURNS TRIGGER AS $$
+DECLARE
+     num_partecipazioni INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO num_partecipazioni
+    FROM CAST_PROD
+		JOIN OPERA_PRODUZIONE_VIEW 
+			ON CAST_PROD.COD_PROD = OPERA_PRODUZIONE_VIEW.COD_PROD
+		JOIN NOMINATA_IN_VENEZIA 
+			ON NOMINATA_IN_VENEZIA.COD_OPERA = OPERA_PRODUZIONE_VIEW.COD_OPERA
+		WHERE CAST_PROD.COD_ATTORE = NEW.COD_ATTORE
+    	AND ANNATA_VENEZIA = NEW.ANNATA_VENEZIA;
+
+    IF num_partecipazioni > 0 THEN
+        RAISE EXCEPTION 'ERRORE: L''attore ha un conflitto di interessi.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_CONFLITTO_INTERESSE_ATTORE
+BEFORE INSERT ON COMPOSTA_DA_ATTORE
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_conflitto_interesse_attore();
+
+/*
+	Controlla che un regista da aggiungere alla giuria 
+ 	non sia parte del cast di una produzione in gara 
+*/
+CREATE OR REPLACE FUNCTION vincolo_conflitto_interesse_regista()
+RETURNS TRIGGER AS $$
+DECLARE
+     num_partecipazioni INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO num_partecipazioni
+    FROM OPERA_PRODUZIONE_VIEW 
+		JOIN NOMINATA_IN_VENEZIA 
+			ON NOMINATA_IN_VENEZIA.COD_OPERA = OPERA_PRODUZIONE_VIEW.COD_OPERA
+		WHERE OPERA_PRODUZIONE_VIEW.COD_REGISTA = NEW.COD_REGISTA
+    	AND ANNATA_VENEZIA = NEW.ANNATA_VENEZIA;
+
+    IF num_partecipazioni > 0 THEN
+        RAISE EXCEPTION 'ERRORE: Il regista ha un conflitto di interessi.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_CONFLITTO_INTERESSE_REGISTA
+BEFORE INSERT ON COMPOSTA_DA_REGISTA
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_conflitto_interesse_regista();
+
+/* Controlla che un giornalista possa votare un'opera solo
+   se appartenente alla giuria */
+CREATE OR REPLACE FUNCTION vincolo_voto_giuria_giornalista()
+RETURNS TRIGGER AS $$
+DECLARE
+     partecipazione INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO partecipazione
+    FROM COMPOSTA_DA_GIORNALISTA
+		WHERE COMPOSTA_DA_GIORNALISTA.COD_GIORNALISTA = NEW.COD_GIORNALISTA
+    	AND ANNATA_VENEZIA = NEW.ANNATA_VENEZIA;
+
+    IF partecipazione <= 0 THEN
+        RAISE EXCEPTION 'ERRORE: Il giornalista non appartiene alla giuria dell''annata selezionata.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_VOTO_GIURIA_GIORNALISTA
+BEFORE INSERT ON VOTA_GIORNALISTA
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_voto_giuria_giornalista();
+
+/* Controlla che un attore possa votare un'opera solo se
+   appartenente alla giuria */
+CREATE OR REPLACE FUNCTION vincolo_voto_giuria_attore()
+RETURNS TRIGGER AS $$
+DECLARE
+     partecipazione INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO partecipazione
+    FROM COMPOSTA_DA_ATTORE
+		WHERE COMPOSTA_DA_ATTORE.COD_ATTORE = NEW.COD_ATTORE
+    	AND ANNATA_VENEZIA = NEW.ANNATA_VENEZIA;
+
+    IF partecipazione <= 0 THEN
+        RAISE EXCEPTION 'ERRORE: L''attore non appartiene alla giuria dell''annata selezionata.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_VOTO_GIURIA_ATTORE
+BEFORE INSERT ON VOTA_ATTORE
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_voto_giuria_attore();
+
+/* Controlla che un regista possa votare un'opera solo se appartiene alla giuria */
+CREATE OR REPLACE FUNCTION vincolo_voto_giuria_regista()
+RETURNS TRIGGER AS $$
+DECLARE
+     partecipazione INT;
+BEGIN	
+	SELECT COUNT(*)
+    INTO partecipazione
+    FROM COMPOSTA_DA_REGISTA
+		WHERE COMPOSTA_DA_REGISTA.COD_REGISTA = NEW.COD_REGISTA
+    	AND ANNATA_VENEZIA = NEW.ANNATA_VENEZIA;
+
+    IF partecipazione <= 0 THEN
+        RAISE EXCEPTION 'ERRORE: Il regista non appartiene alla giuria dell''annata selezionata.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER VINCOLO_VOTO_GIURIA_REGISTA
+BEFORE INSERT ON VOTA_REGISTA
+FOR EACH ROW
+EXECUTE FUNCTION vincolo_voto_giuria_regista();
+
+/* Aggiorna la votazione media un'opera audiovisiva in seguito ad una recensione */
+CREATE OR REPLACE FUNCTION calcolo_votazione()
+RETURNS TRIGGER AS $$
+DECLARE
+     voto_medio REAL;
+BEGIN	
+	SELECT SUM(RECENSIONE.VALUTAZIONE)/COUNT(*)
+    INTO voto_medio
+    FROM RECENSIONE
+		WHERE RECENSIONE.COD_OPERA = NEW.COD_OPERA;
+
+	UPDATE OPERA_AUDIOVISIVA
+		SET VALUTAZIONE_MEDIA = voto_medio
+		WHERE OPERA_AUDIOVISIVA.COD_OPERA = NEW.COD_OPERA;
+		
+	UPDATE OPERA_AUDIOVISIVA
+		SET NUM_VOTI_OE = NUM_VOTI_OE + 1
+		WHERE OPERA_AUDIOVISIVA.COD_OPERA = NEW.COD_OPERA;	
+		
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER CALCOLO_VOTAZIONE_MEDIA
+AFTER INSERT ON RECENSIONE
+FOR EACH ROW
+EXECUTE FUNCTION calcolo_votazione();
+
+/* Violazione trigger iscrizione obbligatoria */
+INSERT INTO VOTA_SPETTATORE (ANNATA_OE, COD_SPETTATORE, COD_OPERA) VALUES 
+(2024, 1000, 1);
+
+INSERT INTO RECENSIONE (COD_SPETTATORE, COD_OPERA) VALUES 
+(1000, 1);
+
+/* Violazione trigger conflitto di interessi attore */
+INSERT INTO COMPOSTA_DA_ATTORE (ANNATA_VENEZIA, COD_ATTORE) VALUES
+(2024, 674);
+
+/* Violazione trigger conflitto di interessi regista */
+INSERT INTO COMPOSTA_DA_REGISTA (ANNATA_VENEZIA, COD_REGISTA) VALUES
+(2024, 845);
+
+/* Violazione appartenenza giuria obbligatoria */
+INSERT INTO VOTA_GIORNALISTA (ANNATA_VENEZIA, COD_GIORNALISTA, COD_OPERA) VALUES
+(2024, 10, 7);
+
+INSERT INTO VOTA_ATTORE (ANNATA_VENEZIA, COD_ATTORE, COD_OPERA) VALUES
+(2024, 10, 7);
+
+INSERT INTO VOTA_REGISTA (ANNATA_VENEZIA, COD_REGISTA, COD_OPERA) VALUES
+(2024, 10, 7);
+
+
+
+/* Drop triggers */
+DROP TRIGGER VINCOLO_VOTO_ISCRIZIONE ON VOTA_SPETTATORE;
+DROP TRIGGER VINCOLO_RECENSIONE_ISCRIZIONE ON RECENSIONE;
+DROP TRIGGER VINCOLO_CONFLITTO_INTERESSE_ATTORE ON COMPOSTA_DA_ATTORE;
+DROP TRIGGER VINCOLO_CONFLITTO_INTERESSE_REGISTA ON COMPOSTA_DA_REGISTA;
+DROP TRIGGER VINCOLO_VOTO_GIURIA_GIORNALISTA ON VOTA_GIORNALISTA;
+DROP TRIGGER VINCOLO_VOTO_GIURIA_ATTORE ON VOTA_ATTORE;
+DROP TRIGGER VINCOLO_VOTO_GIURIA_REGISTA ON VOTA_REGISTA;
+DROP TRIGGER CALCOLO_VOTAZIONE_MEDIA ON RECENSIONE;
+DROP TRIGGER RICLUSTER_INDICE_COM ON COMMENTO;
+DROP TRIGGER RICLUSTER_INDICE_REC ON RECENSIONE;

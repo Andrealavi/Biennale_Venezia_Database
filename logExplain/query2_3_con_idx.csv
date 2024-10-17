@@ -1,0 +1,4 @@
+"QUERY PLAN"
+"Index Scan using idx_timestamp_rec on recensione  (cost=0.29..5728.90 rows=200001 width=50) (actual time=0.038..22.374 rows=200001 loops=1)"
+"Planning Time: 0.126 ms"
+"Execution Time: 26.676 ms"

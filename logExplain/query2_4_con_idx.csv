@@ -1,0 +1,4 @@
+"QUERY PLAN"
+"Index Scan using idx_timestamp_com on commento  (cost=0.29..2999.31 rows=101001 width=54) (actual time=0.012..9.783 rows=101001 loops=1)"
+"Planning Time: 0.076 ms"
+"Execution Time: 11.641 ms"

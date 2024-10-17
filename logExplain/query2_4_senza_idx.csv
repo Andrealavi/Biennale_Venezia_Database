@@ -1,0 +1,7 @@
+"QUERY PLAN"
+"Sort  (cost=13980.72..14233.22 rows=101001 width=54) (actual time=31.566..44.591 rows=101001 loops=1)"
+"  Sort Key: timestamp_cont"
+"  Sort Method: external merge  Disk: 6744kB"
+"  ->  Seq Scan on commento  (cost=0.00..2131.01 rows=101001 width=54) (actual time=0.017..7.912 rows=101001 loops=1)"
+"Planning Time: 0.080 ms"
+"Execution Time: 50.305 ms"
